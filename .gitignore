@@ -1,0 +1,20 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Database & Logs
+*.db-journal
+*.db-wal
+test_inspections.db
+*.log
+
+# Operating System
+.DS_Store
+Thumbs.db

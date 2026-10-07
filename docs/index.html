@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vision-Based Product Inspection</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --pass: #10b981;
+      --pass-bg: #d1fae5;
+      --pass-text: #065f46;
+      --fail: #ef4444;
+      --fail-bg: #fee2e2;
+      --fail-text: #991b1b;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --text-muted: #64748b;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    header h1 { font-size: 1.35rem; display: flex; align-items: center; gap: 0.5rem; font-weight: 700; }
+    header p { font-size: 0.85rem; color: var(--text-muted); }
+
+    .wasm-status {
+      font-size: 0.8rem;
+      padding: 0.35rem 0.85rem;
+      border-radius: 9999px;
+      font-weight: 600;
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .wasm-status.ready {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 1.5rem;
+      max-width: 1440px;
+      margin: 1.5rem auto;
+      padding: 0 1.5rem;
+    }
+
+    @media (max-width: 1024px) {
+      .container { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      margin-bottom: 1.5rem;
+    }
+    .panel h2 { font-size: 1.05rem; margin-bottom: 1rem; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem; color: var(--text); }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+
+    input[type="number"], select, input[type="text"] {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.9rem;
+      outline: none;
+    }
+    input[type="range"] { width: 100%; }
+    .range-val { font-size: 0.75rem; color: var(--text-muted); text-align: right; }
+
+    .btn {
+      display: inline-block;
+      width: 100%;
+      background: var(--primary);
+      color: white;
+      padding: 0.6rem 1rem;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      text-align: center;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: var(--primary-hover); }
+    .btn-secondary { background: #64748b; margin-top: 0.5rem; }
+    .btn-secondary:hover { background: #475569; }
+
+    .metrics-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      text-align: center;
+    }
+    .metric-card .title { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
+    .metric-card .value { font-size: 1.4rem; font-weight: 700; margin-top: 0.2rem; }
+
+    .badge-pass {
+      background: var(--pass-bg);
+      color: var(--pass-text);
+      border: 1px solid var(--pass);
+      padding: 0.4rem 1rem;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 1.2rem;
+      display: inline-block;
+    }
+    .badge-fail {
+      background: var(--fail-bg);
+      color: var(--fail-text);
+      border: 1px solid var(--fail);
+      padding: 0.4rem 1rem;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 1.2rem;
+      display: inline-block;
+    }
+
+    .views-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    @media (max-width: 768px) {
+      .views-grid { grid-template-columns: 1fr; }
+    }
+    .canvas-container {
+      background: #0f172a;
+      border-radius: 8px;
+      padding: 0.5rem;
+      text-align: center;
+      overflow: hidden;
+    }
+    .canvas-container canvas {
+      max-width: 100%;
+      height: auto;
+      border-radius: 4px;
+      display: block;
+      margin: 0 auto;
+    }
+    .canvas-caption { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--text); }
+
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 1rem;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      padding: 0.5rem 0.85rem;
+      background: none;
+      border: none;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+    }
+    .tab-btn.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    th, td {
+      padding: 0.6rem 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    th { background: #f1f5f9; font-weight: 600; }
+
+    #webcamVideo { display: none; }
+  </style>
+  <!-- Load OpenCV.js asynchronously -->
+  <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+</head>
+<body>
+
+  <header>
+    <div>
+      <h1>🔍 Vision-Based Product Inspection</h1>
+      <p>Independent Computer Vision Quality Station (OpenCV.js & WebAssembly)</p>
+    </div>
+    <div id="wasmStatus" class="wasm-status">⏳ Initializing OpenCV.js WebAssembly...</div>
+  </header>
+
+  <div class="container">
+    <!-- LEFT SIDEBAR CONTROLS -->
+    <div>
+      <div class="panel">
+        <h2>📥 Image Input</h2>
+        <div class="form-group">
+          <label for="inputSource">Source</label>
+          <select id="inputSource" onchange="handleSourceChange()">
+            <option value="samples">Sample Workpiece Images</option>
+            <option value="upload">Upload Custom Image</option>
+            <option value="camera">Live Webcam Capture</option>
+          </select>
+        </div>
+
+        <div id="sampleSelectGroup" class="form-group">
+          <label for="samplePreset">Test Workpiece Scenario</label>
+          <select id="samplePreset" onchange="loadPresetSample()">
+            <option value="0">1. Nominal Compliant Part (Pass)</option>
+            <option value="1">2. Oversized Width (Fail)</option>
+            <option value="2">3. Undersized Height (Fail)</option>
+            <option value="3">4. Surface Scratch Defect (Fail)</option>
+            <option value="4">5. Internal Hole / Void (Fail)</option>
+            <option value="5">6. Edge Chip / Notch Defect (Fail)</option>
+            <option value="6">7. Multiple Surface Defects (Fail)</option>
+            <option value="7">8. Rotated Compliant Part (Pass)</option>
+          </select>
+        </div>
+
+        <div id="uploadGroup" class="form-group" style="display: none;">
+          <label for="fileUpload">Choose Image File</label>
+          <input type="file" id="fileUpload" accept="image/*" onchange="handleFileUpload(event)">
+        </div>
+
+        <div id="cameraGroup" class="form-group" style="display: none;">
+          <button class="btn" onclick="startCamera()">📷 Start Webcam</button>
+          <button class="btn btn-secondary" onclick="captureCamera()">📸 Snap Frame</button>
+          <video id="webcamVideo" autoplay playsinline></video>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>⚙️ Quality Rules</h2>
+        <div class="form-row form-group">
+          <div>
+            <label for="expWidth">Target Width (px)</label>
+            <input type="number" id="expWidth" value="100" step="1" onchange="runInspection()">
+          </div>
+          <div>
+            <label for="tolWidth">Tolerance (± px)</label>
+            <input type="number" id="tolWidth" value="5" step="0.5" onchange="runInspection()">
+          </div>
+        </div>
+
+        <div class="form-row form-group">
+          <div>
+            <label for="expHeight">Target Height (px)</label>
+            <input type="number" id="expHeight" value="60" step="1" onchange="runInspection()">
+          </div>
+          <div>
+            <label for="tolHeight">Tolerance (± px)</label>
+            <input type="number" id="tolHeight" value="5" step="0.5" onchange="runInspection()">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>🎛️ Vision Parameters</h2>
+        <div class="form-group">
+          <label for="blurK">Gaussian Blur Kernel: <span id="blurKVal">5</span></label>
+          <input type="range" id="blurK" min="1" max="15" step="2" value="5" oninput="updateRange('blurK', 'blurKVal'); runInspection();">
+        </div>
+
+        <div class="form-group">
+          <label for="threshType">Threshold Method</label>
+          <select id="threshType" onchange="runInspection()">
+            <option value="otsu">Otsu Bimodal</option>
+            <option value="binary">Binary Manual</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="threshVal">Binary Threshold Cut-off: <span id="threshValLabel">127</span></label>
+          <input type="range" id="threshVal" min="10" max="240" step="1" value="127" oninput="updateRange('threshVal', 'threshValLabel'); runInspection();">
+        </div>
+
+        <div class="form-group">
+          <label for="minDefect">Min Defect Area (px²): <span id="minDefectVal">15</span></label>
+          <input type="range" id="minDefect" min="5" max="80" step="1" value="15" oninput="updateRange('minDefect', 'minDefectVal'); runInspection();">
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN DASHBOARD CONTENT -->
+    <div>
+      <!-- RESULTS METRIC BAR -->
+      <div class="metrics-row">
+        <div class="metric-card">
+          <div class="title">Inspection Verdict</div>
+          <div id="verdictBadge" style="margin-top:0.4rem;"><span class="badge-pass">PASS</span></div>
+        </div>
+        <div class="metric-card">
+          <div class="title">Dimensions (W × H)</div>
+          <div id="measuredDims" class="value">100.0 × 60.0 px</div>
+        </div>
+        <div class="metric-card">
+          <div class="title">Defects Found</div>
+          <div id="defectCount" class="value">0</div>
+        </div>
+        <div class="metric-card">
+          <div class="title">Execution Latency</div>
+          <div id="latencyVal" class="value">12 ms</div>
+        </div>
+      </div>
+
+      <!-- VISUAL COMPARISON -->
+      <div class="panel">
+        <h2>🖼️ Inspection Overlay & Comparison</h2>
+        <div class="views-grid">
+          <div>
+            <div class="canvas-caption">Original Workpiece Input</div>
+            <div class="canvas-container">
+              <canvas id="canvasInput" width="400" height="300"></canvas>
+            </div>
+          </div>
+          <div>
+            <div class="canvas-caption">Inspection Result (Annotated)</div>
+            <div class="canvas-container">
+              <canvas id="canvasAnnotated" width="400" height="300"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- INTERMEDIATE STAGES TABS -->
+      <div class="panel">
+        <h2>🔬 Intermediate Processing Stages</h2>
+        <div class="tabs">
+          <button class="tab-btn active" onclick="switchTab(event, 'tabGrayscale')">1. Grayscale</button>
+          <button class="tab-btn" onclick="switchTab(event, 'tabBlurred')">2. Gaussian Blur</button>
+          <button class="tab-btn" onclick="switchTab(event, 'tabThresh')">3. Thresholding</button>
+          <button class="tab-btn" onclick="switchTab(event, 'tabEdges')">4. Canny Edges</button>
+        </div>
+
+        <div id="tabGrayscale" class="tab-content active">
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">Luminance channel extraction for illumination invariance.</p>
+          <div class="canvas-container"><canvas id="canvasGray" width="400" height="300"></canvas></div>
+        </div>
+        <div id="tabBlurred" class="tab-content">
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">High-frequency noise suppression using 2D spatial convolution.</p>
+          <div class="canvas-container"><canvas id="canvasBlur" width="400" height="300"></canvas></div>
+        </div>
+        <div id="tabThresh" class="tab-content">
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">Foreground binarization isolating workpiece silhouette from background.</p>
+          <div class="canvas-container"><canvas id="canvasThresh" width="400" height="300"></canvas></div>
+        </div>
+        <div id="tabEdges" class="tab-content">
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">Non-maximum suppression boundary contours via Canny gradient operator.</p>
+          <div class="canvas-container"><canvas id="canvasEdges" width="400" height="300"></canvas></div>
+        </div>
+      </div>
+
+      <!-- INSPECTION HISTORY AUDIT LOG -->
+      <div class="panel">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+          <h2>🗄️ Inspection Audit Trail (Local History)</h2>
+          <div>
+            <button class="btn" style="width:auto; padding:0.35rem 0.75rem; font-size:0.8rem;" onclick="exportHistoryCSV()">Export CSV</button>
+            <button class="btn btn-secondary" style="width:auto; padding:0.35rem 0.75rem; font-size:0.8rem; margin:0;" onclick="clearHistory()">Clear</button>
+          </div>
+        </div>
+        <div style="overflow-x: auto;">
+          <table id="historyTable">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Product ID</th>
+                <th>Verdict</th>
+                <th>Width</th>
+                <th>Height</th>
+                <th>Defects</th>
+                <th>Latency</th>
+              </tr>
+            </thead>
+            <tbody id="historyBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let cvReady = false;
+    let inspectionHistory = [];
+
+    function onOpenCvReady() {
+      cvReady = true;
+      const statusEl = document.getElementById("wasmStatus");
+      statusEl.textContent = "⚡ OpenCV.js Ready";
+      statusEl.className = "wasm-status ready";
+      loadPresetSample();
+    }
+
+    function updateRange(id, labelId) {
+      document.getElementById(labelId).textContent = document.getElementById(id).value;
+    }
+
+    function switchTab(evt, tabId) {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+      evt.currentTarget.classList.add("active");
+      document.getElementById(tabId).classList.add("active");
+    }
+
+    function handleSourceChange() {
+      const src = document.getElementById("inputSource").value;
+      document.getElementById("sampleSelectGroup").style.display = (src === "samples") ? "block" : "none";
+      document.getElementById("uploadGroup").style.display = (src === "upload") ? "block" : "none";
+      document.getElementById("cameraGroup").style.display = (src === "camera") ? "block" : "none";
+      if (src === "samples") loadPresetSample();
+    }
+
+    // Procedural synthesis of sample workpieces directly on canvas
+    function renderWorkpieceToCanvas(canvas, w, h, angle, defects) {
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ebedf0";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(angle * Math.PI / 180);
+
+      // Part drop shadow
+      ctx.fillStyle = "rgba(0, 0, 0, 0.12)";
+      ctx.fillRect(-w/2 + 3, -h/2 + 3, w, h);
+
+      // Part metallic body
+      ctx.fillStyle = "#5a5f64";
+      ctx.fillRect(-w/2, -h/2, w, h);
+
+      // Chamfer edge
+      ctx.strokeStyle = "#787d82";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-w/2, -h/2, w, h);
+
+      // Synthesize defects if requested
+      if (defects.scratch) {
+        ctx.strokeStyle = "#191919";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-15, -6);
+        ctx.lineTo(10, 8);
+        ctx.lineTo(24, 12);
+        ctx.stroke();
+      }
+
+      if (defects.hole) {
+        ctx.fillStyle = "#0f0f14";
+        ctx.beginPath();
+        ctx.arc(15, -4, 5, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+
+      if (defects.chip) {
+        ctx.fillStyle = "#ebedf0";
+        ctx.beginPath();
+        ctx.moveTo(-8, -h/2);
+        ctx.lineTo(2, -h/2 + 14);
+        ctx.lineTo(12, -h/2);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    function loadPresetSample() {
+      const idx = parseInt(document.getElementById("samplePreset").value);
+      const canvasIn = document.getElementById("canvasInput");
+
+      const scenarios = [
+        { w: 100, h: 60, a: 0, d: {} },                         // 1. Nominal
+        { w: 116, h: 60, a: 0, d: {} },                         // 2. Oversized Width
+        { w: 100, h: 48, a: 0, d: {} },                         // 3. Undersized Height
+        { w: 100, h: 60, a: 0, d: { scratch: true } },          // 4. Scratch
+        { w: 100, h: 60, a: 0, d: { hole: true } },             // 5. Hole
+        { w: 100, h: 60, a: 0, d: { chip: true } },             // 6. Edge Chip
+        { w: 100, h: 60, a: 0, d: { scratch: true, hole: true } },// 7. Multiple
+        { w: 100, h: 60, a: 18, d: {} }                         // 8. Rotated
+      ];
+
+      const s = scenarios[idx];
+      renderWorkpieceToCanvas(canvasIn, s.w, s.h, s.a, s.d);
+      runInspection();
+    }
+
+    function handleFileUpload(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const img = new Image();
+        img.onload = function() {
+          const canvasIn = document.getElementById("canvasInput");
+          const ctx = canvasIn.getContext("2d");
+          ctx.drawImage(img, 0, 0, canvasIn.width, canvasIn.height);
+          runInspection();
+        };
+        img.src = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    let videoStream = null;
+    function startCamera() {
+      const video = document.getElementById("webcamVideo");
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => {
+          videoStream = stream;
+          video.srcObject = stream;
+          video.style.display = "block";
+        })
+        .catch(err => alert("Camera access denied or unavailable: " + err));
+    }
+
+    function captureCamera() {
+      const video = document.getElementById("webcamVideo");
+      if (!video || !video.videoWidth) return;
+      const canvasIn = document.getElementById("canvasInput");
+      const ctx = canvasIn.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvasIn.width, canvasIn.height);
+      runInspection();
+    }
+
+    // MAIN OPENCV COMPUTER VISION INSPECTION PIPELINE
+    function runInspection() {
+      if (!cvReady) return;
+      const t0 = performance.now();
+
+      const canvasIn = document.getElementById("canvasInput");
+      const src = cv.imread(canvasIn);
+      const gray = new cv.Mat();
+      const blurred = new cv.Mat();
+      const thresh = new cv.Mat();
+      const edges = new cv.Mat();
+      const dst = src.clone();
+
+      // 1. Grayscale
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+
+      // 2. Gaussian Blur
+      const ksize = parseInt(document.getElementById("blurK").value);
+      cv.GaussianBlur(gray, blurred, new cv.Size(ksize, ksize), 0, 0, cv.BORDER_DEFAULT);
+
+      // 3. Thresholding
+      const method = document.getElementById("threshType").value;
+      const cutVal = parseFloat(document.getElementById("threshVal").value);
+      if (method === "otsu") {
+        cv.threshold(blurred, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+      } else {
+        cv.threshold(blurred, thresh, cutVal, 255, cv.THRESH_BINARY);
+      }
+
+      // Check polarity (ensure object is 255, background 0)
+      let borderMean = (thresh.ucharPtr(0, 0)[0] + thresh.ucharPtr(thresh.rows - 1, thresh.cols - 1)[0]) / 2;
+      if (borderMean > 127) {
+        cv.bitwise_not(thresh, thresh);
+      }
+
+      // 4. Canny Edge Detection
+      cv.Canny(blurred, edges, 50, 150, 3, false);
+
+      // Render intermediate stages
+      cv.imshow("canvasGray", gray);
+      cv.imshow("canvasBlur", blurred);
+      cv.imshow("canvasThresh", thresh);
+      cv.imshow("canvasEdges", edges);
+
+      // 5. Contour Extraction
+      const contours = new cv.MatVector();
+      const hierarchy = new cv.Mat();
+      cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+      let maxArea = 0;
+      let maxIdx = -1;
+      for (let i = 0; i < contours.size(); ++i) {
+        const a = cv.contourArea(contours.get(i));
+        if (a > maxArea && a > 300) {
+          maxArea = a;
+          maxIdx = i;
+        }
+      }
+
+      let overallPass = false;
+      let wMeas = 0, hMeas = 0, defectList = [];
+      const expW = parseFloat(document.getElementById("expWidth").value);
+      const tolW = parseFloat(document.getElementById("tolWidth").value);
+      const expH = parseFloat(document.getElementById("expHeight").value);
+      const tolH = parseFloat(document.getElementById("tolHeight").value);
+      const minDefectArea = parseFloat(document.getElementById("minDefect").value);
+
+      if (maxIdx >= 0) {
+        const mainCnt = contours.get(maxIdx);
+        const rect = cv.minAreaRect(mainCnt);
+        const dim1 = rect.size.width;
+        const dim2 = rect.size.height;
+        wMeas = Math.max(dim1, dim2);
+        hMeas = Math.min(dim1, dim2);
+
+        // Quality rule check
+        const wPass = Math.abs(wMeas - expW) <= tolW;
+        const hPass = Math.abs(hMeas - expH) <= tolH;
+
+        // Surface Defect Check (Eroded Mask + Black-Hat)
+        const mask = new cv.Mat.zeros(src.rows, src.cols, cv.CV_8UC1);
+        const erodedMask = new cv.Mat();
+        const colorWhite = new cv.Scalar(255);
+        cv.drawContours(mask, contours, maxIdx, colorWhite, -1);
+
+        const erodeKernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(7, 7));
+        cv.erode(mask, erodedMask, erodeKernel);
+
+        const bhKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(9, 9));
+        const blackhat = new cv.Mat();
+        cv.morphologyEx(gray, blackhat, cv.MORPH_BLACKHAT, bhKernel);
+
+        const maskedAnomalies = new cv.Mat();
+        cv.bitwise_and(blackhat, blackhat, maskedAnomalies, erodedMask);
+
+        const threshAnom = new cv.Mat();
+        cv.threshold(maskedAnomalies, threshAnom, 35, 255, cv.THRESH_BINARY);
+
+        const anomContours = new cv.MatVector();
+        const anomHier = new cv.Mat();
+        cv.findContours(threshAnom, anomContours, anomHier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+        for (let j = 0; j < anomContours.size(); ++j) {
+          const dArea = cv.contourArea(anomContours.get(j));
+          if (dArea >= minDefectArea) {
+            const b = cv.boundingRect(anomContours.get(j));
+            defectList.push({ type: (b.width/b.height > 2 || b.height/b.width > 2) ? "Scratch" : "Hole", x: b.x, y: b.y, w: b.width, h: b.height, area: dArea });
+          }
+        }
+
+        // Edge Chip Detection (Convex Hull difference)
+        const hull = new cv.Mat();
+        cv.convexHull(mainCnt, hull, false, true);
+        const hullVector = new cv.MatVector();
+        hullVector.push_back(hull);
+        const hullMask = new cv.Mat.zeros(src.rows, src.cols, cv.CV_8UC1);
+        cv.drawContours(hullMask, hullVector, 0, colorWhite, -1);
+
+        const missing = new cv.Mat();
+        cv.subtract(hullMask, mask, missing);
+        const missContours = new cv.MatVector();
+        const missHier = new cv.Mat();
+        cv.findContours(missing, missContours, missHier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+        for (let k = 0; k < missContours.size(); ++k) {
+          const cArea = cv.contourArea(missContours.get(k));
+          if (cArea >= minDefectArea) {
+            const b = cv.boundingRect(missContours.get(k));
+            defectList.push({ type: "Edge Chip", x: b.x, y: b.y, w: b.width, h: b.height, area: cArea });
+          }
+        }
+
+        overallPass = wPass && hPass && (defectList.length === 0);
+
+        // Visual Annotation
+        const statusColor = overallPass ? new cv.Scalar(46, 204, 113, 255) : new cv.Scalar(231, 76, 60, 255);
+        cv.drawContours(dst, contours, maxIdx, statusColor, 2);
+
+        // Draw Defects
+        const redColor = new cv.Scalar(239, 68, 68, 255);
+        defectList.forEach((d, i) => {
+          const pt1 = new cv.Point(d.x - 2, d.y - 2);
+          const pt2 = new cv.Point(d.x + d.w + 2, d.y + d.h + 2);
+          cv.rectangle(dst, pt1, pt2, redColor, 2);
+          cv.putText(dst, `#${i+1} ${d.type}`, new cv.Point(d.x, Math.max(12, d.y - 4)), cv.FONT_HERSHEY_SIMPLEX, 0.38, redColor, 1);
+        });
+
+        // Top Status Badge
+        cv.putText(dst, overallPass ? "PASS" : "FAIL", new cv.Point(15, 30), cv.FONT_HERSHEY_DUPLEX, 0.8, statusColor, 2);
+        cv.putText(dst, `W: ${wMeas.toFixed(1)}px | H: ${hMeas.toFixed(1)}px`, new cv.Point(15, 52), cv.FONT_HERSHEY_SIMPLEX, 0.42, new cv.Scalar(255, 255, 255, 255), 1);
+
+        // Cleanup
+        mask.delete(); erodedMask.delete(); erodeKernel.delete(); bhKernel.delete(); blackhat.delete();
+        maskedAnomalies.delete(); threshAnom.delete(); anomContours.delete(); anomHier.delete();
+        hull.delete(); hullVector.delete(); hullMask.delete(); missing.delete(); missContours.delete(); missHier.delete();
+      }
+
+      cv.imshow("canvasAnnotated", dst);
+
+      // Free remaining memory
+      src.delete(); gray.delete(); blurred.delete(); thresh.delete(); edges.delete(); dst.delete();
+      contours.delete(); hierarchy.delete();
+
+      const elapsed = Math.round(performance.now() - t0);
+
+      // Update UI Metrics
+      const vEl = document.getElementById("verdictBadge");
+      vEl.innerHTML = overallPass ? '<span class="badge-pass">✅ PASS</span>' : '<span class="badge-fail">❌ FAIL</span>';
+      document.getElementById("measuredDims").textContent = `${wMeas.toFixed(1)} × ${hMeas.toFixed(1)} px`;
+      document.getElementById("defectCount").textContent = defectList.length;
+      document.getElementById("latencyVal").textContent = `${elapsed} ms`;
+
+      // Log to history
+      logInspectionRecord(overallPass, wMeas, hMeas, defectList, elapsed);
+    }
+
+    function logInspectionRecord(pass, w, h, defects, ms) {
+      const record = {
+        time: new Date().toLocaleTimeString(),
+        id: `PROD-${Math.floor(Math.random() * 9000 + 1000)}`,
+        pass: pass ? "PASS" : "FAIL",
+        w: w.toFixed(1),
+        h: h.toFixed(1),
+        defects: defects.length > 0 ? defects.map(d => d.type).join(", ") : "None",
+        ms: `${ms} ms`
+      };
+      inspectionHistory.unshift(record);
+      if (inspectionHistory.length > 20) inspectionHistory.pop();
+
+      const tbody = document.getElementById("historyBody");
+      tbody.innerHTML = "";
+      inspectionHistory.forEach(r => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${r.time}</td>
+          <td><b>${r.id}</b></td>
+          <td><span style="color:${r.pass==='PASS'?'#10b981':'#ef4444'}; font-weight:700;">${r.pass}</span></td>
+          <td>${r.w} px</td>
+          <td>${r.h} px</td>
+          <td>${r.defects}</td>
+          <td>${r.ms}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    function exportHistoryCSV() {
+      if (inspectionHistory.length === 0) return alert("No history records yet.");
+      let csv = "Time,Product ID,Verdict,Width (px),Height (px),Defects,Latency\n";
+      inspectionHistory.forEach(r => {
+        csv += `${r.time},${r.id},${r.pass},${r.w},${r.h},"${r.defects}",${r.ms}\n`;
+      });
+      const blob = new Blob([csv], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `inspection_history_${Date.now()}.csv`;
+      a.click();
+    }
+
+    function clearHistory() {
+      inspectionHistory = [];
+      document.getElementById("historyBody").innerHTML = "";
+    }
+  </script>
+</body>
+</html>
